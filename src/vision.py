@@ -10,6 +10,7 @@ import base64
 import json
 import re
 import sys
+from dotenv import load_dotenv
 from pathlib import Path
 
 
@@ -17,7 +18,7 @@ from pathlib import Path
 # 1. CONFIGURATION
 # ──────────────────────────────────────────────
 
-MODEL = "claude-opus-4-5"  # Vision disponible sur tous les modèles récents
+MODEL = "claude-haiku-4-5-20251001"  # Vision disponible sur tous les modèles récents
 
 SUPPORTED_IMAGE_TYPES = {
     ".jpg":  "image/jpeg",
@@ -213,6 +214,8 @@ def normalize_extracted_data(raw: dict, file_name: str) -> dict:
 # ──────────────────────────────────────────────
 
 def extract_from_vision(file_path: str) -> dict:
+    load_dotenv()
+
     """
     Point d'entrée principal.
     Accepte PDF scanné ou image (JPG, PNG, WEBP, GIF).
