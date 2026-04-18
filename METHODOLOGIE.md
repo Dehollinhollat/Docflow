@@ -1,5 +1,6 @@
 # 📄 DocFlow — Méthodologie
 
+**Auteur :** Déhollin HOLLAT, Chef de Projet Data IA 
 > Pipeline intelligent de traitement automatique de documents entrants (factures, bons de commande, documents scannés) — de la boîte mail à Airtable, sans intervention humaine.
 
 ---
@@ -236,3 +237,27 @@ Tests réalisés sur 4 documents différents :
 | **Render** | Plateforme cloud pour héberger des applications web |
 | **Airtable** | Base de données no-code avec interface visuelle |
 | **Base64** | Méthode pour convertir un fichier binaire en texte transportable |
+
+## Difficultés rencontrées
+
+### Intégration n8n — transmission des fichiers binaires
+
+L'orchestration du pipeline via **n8n** (outil no-code d'automatisation) a posé un problème technique majeur : n8n ne permet pas de transmettre facilement des fichiers binaires (PDF, images) vers une API externe via un nœud HTTP Request.
+
+Plusieurs approches ont été testées :
+
+| Approche testée | Résultat |
+|---|---|
+| HTTP Request avec Form-Data + n8n Binary File | ❌ 422 Unprocessable Entity |
+| Nœud Code avec getBinaryDataBuffer + httpRequest | ❌ Erreur inconnue |
+| Nœud Code avec FormData multipart | ❌ Circular structure JSON |
+| URL Gmail directe + endpoint /process_url | ❌ 400 Bad Request |
+| Base64 via nœud Code + endpoint /process_b64 | ⚠️ Partiel |
+
+**Décision prise :** plutôt que de continuer à déboguer n8n, un script Python autonome (`gmail_watcher.py`) a été développé pour surveiller Gmail directement via l'API Google. Cette approche est plus fiable, plus contrôlable et plus défendable techniquement.
+
+**Ce que ça démontre :** savoir arbitrer entre persévérance et pragmatisme est une compétence clé en gestion de projet — continuer à bloquer sur n8n aurait retardé la livraison sans apporter de valeur supplémentaire.
+
+En production, l'intégration no-code serait réalisée via un **webhook Gmail natif** branché directement sur l'endpoint FastAPI `/process`, sans dépendance à n8n.
+
+**Auteur :** Déhollin HOLLAT, Chef de Projet Data IA 
