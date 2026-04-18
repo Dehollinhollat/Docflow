@@ -149,7 +149,7 @@ with open('tests/sample_facture.pdf', 'rb') as f:
 
 ---
 
-## 💬 Questions d'entretien
+## 💬 Questions
 
 | Question | Réponse clé |
 |---|---|
