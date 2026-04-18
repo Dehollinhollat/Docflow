@@ -28,6 +28,7 @@ def health_check():
 
 @app.post("/process")
 async def process_document(file: UploadFile = File(...)):
+    print(f"Fichier reçu : {file.filename}, type : {file.content_type}, taille : {file.size}")
     """
     Endpoint principal — reçoit un fichier (PDF ou image),
     exécute le pipeline complet et pousse dans Airtable.
