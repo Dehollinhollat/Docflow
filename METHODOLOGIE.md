@@ -32,6 +32,10 @@ Ce processus est lent, sujet aux erreurs et ne passe pas à l'échelle.
 ---
 
 ## Vue d'ensemble du pipeline
+
+<!-- Image : schéma d'architecture globale du pipeline -->
+![Architecture DocFlow](docs/images/architecture.png)
+
 ```
 📧 Email reçu (Gmail)
 │
@@ -63,6 +67,7 @@ Vérification doublon → Push Airtable
 ▼
 ✅ Document dans Airtable
 ```
+
 ---
 
 ## Phase 1 — Extraction PDF natif
@@ -88,6 +93,9 @@ On cherche ensuite des **patterns** dans ce texte pour identifier les champs cl�
 
 Si aucun texte n'est détecté → le document est considéré comme scanné et délégué à la Phase 2.
 
+<!-- Image : exemple de résultat JSON extractor.py dans le terminal -->
+![Résultat extractor.py](docs/images/extractor_result.png)
+
 ---
 
 ## Phase 2 — Extraction par vision IA
@@ -105,6 +113,9 @@ Un champ `problemes_detectes` liste les anomalies repérées (incohérence de da
 | PDF avec texte natif | pdfplumber (gratuit, déterministe) |
 | PDF scanné | Claude API Vision |
 | Photo (JPG, PNG…) | Claude API Vision |
+
+<!-- Image : exemple de résultat JSON vision.py sur une image -->
+![Résultat vision.py](docs/images/vision_result.png)
 
 ---
 
@@ -170,6 +181,9 @@ Le document enrichi est poussé dans la bonne table Airtable selon son type :
 
 Avant chaque insertion, le hash est vérifié — si le document existe déjà, il est rejeté avec notification.
 
+<!-- Image : capture d'écran Airtable avec les données insérées -->
+![Airtable DocFlow](docs/images/airtable.png)
+
 ---
 
 ## Phase 6 — API FastAPI et surveillance Gmail
@@ -187,6 +201,9 @@ Le pipeline Python est exposé via une **API FastAPI** déployée sur Render. El
 | `POST /process_b64` | Fichier encodé en base64 (utilisé par gmail_watcher) |
 | `POST /process_url` | Fichier via URL publique |
 
+<!-- Image : capture Swagger FastAPI -->
+![Swagger DocFlow](docs/images/swagger.png)
+
 ### Surveillance Gmail
 
 `gmail_watcher.py` tourne en local et surveille la boîte Gmail toutes les 60 secondes. Dès qu'un email non lu avec pièce jointe est détecté :
@@ -195,6 +212,9 @@ Le pipeline Python est exposé via une **API FastAPI** déployée sur Render. El
 2. Encodée en base64 et envoyée à l'API FastAPI
 3. L'email est marqué comme lu
 4. L'ID du message est sauvegardé pour éviter le retraitement
+
+<!-- Image : terminal gmail_watcher.py en action -->
+![Gmail Watcher](docs/images/gmail_watcher.png)
 
 ---
 
@@ -208,6 +228,30 @@ Tests réalisés sur 4 documents différents :
 | Facture PDF scannée | Claude Vision | 100% ✅ | Extrait |
 | Bon de commande artisan (image) | Claude Vision | 100% ✅ | Extrait |
 | Facture atelier poterie (image) | Claude Vision | 80% ⚠️ | Extrait (SIRET absent) |
+
+---
+
+## Difficultés rencontrées
+
+### Intégration n8n — transmission des fichiers binaires
+
+L'orchestration du pipeline via **n8n** (outil no-code d'automatisation) a posé un problème technique majeur : n8n ne permet pas de transmettre facilement des fichiers binaires (PDF, images) vers une API externe via un nœud HTTP Request.
+
+Plusieurs approches ont été testées :
+
+| Approche testée | Résultat |
+|---|---|
+| HTTP Request avec Form-Data + n8n Binary File | ❌ 422 Unprocessable Entity |
+| Nœud Code avec getBinaryDataBuffer + httpRequest | ❌ Erreur inconnue |
+| Nœud Code avec FormData multipart | ❌ Circular structure JSON |
+| URL Gmail directe + endpoint /process_url | ❌ 400 Bad Request |
+| Base64 via nœud Code + endpoint /process_b64 | ⚠️ Partiel |
+
+**Décision prise :** plutôt que de continuer à déboguer n8n, un script Python autonome (`gmail_watcher.py`) a été développé pour surveiller Gmail directement via l'API Google. Cette approche est plus fiable, plus contrôlable et plus défendable techniquement.
+
+**Ce que ça démontre :** savoir arbitrer entre persévérance et pragmatisme est une compétence clé en gestion de projet — continuer à bloquer sur n8n aurait retardé la livraison sans apporter de valeur supplémentaire.
+
+En production, l'intégration no-code serait réalisée via un **webhook Gmail natif** branché directement sur l'endpoint FastAPI `/process`, sans dépendance à n8n.
 
 ---
 
@@ -238,26 +282,6 @@ Tests réalisés sur 4 documents différents :
 | **Airtable** | Base de données no-code avec interface visuelle |
 | **Base64** | Méthode pour convertir un fichier binaire en texte transportable |
 
-## Difficultés rencontrées
+---
 
-### Intégration n8n — transmission des fichiers binaires
-
-L'orchestration du pipeline via **n8n** (outil no-code d'automatisation) a posé un problème technique majeur : n8n ne permet pas de transmettre facilement des fichiers binaires (PDF, images) vers une API externe via un nœud HTTP Request.
-
-Plusieurs approches ont été testées :
-
-| Approche testée | Résultat |
-|---|---|
-| HTTP Request avec Form-Data + n8n Binary File | ❌ 422 Unprocessable Entity |
-| Nœud Code avec getBinaryDataBuffer + httpRequest | ❌ Erreur inconnue |
-| Nœud Code avec FormData multipart | ❌ Circular structure JSON |
-| URL Gmail directe + endpoint /process_url | ❌ 400 Bad Request |
-| Base64 via nœud Code + endpoint /process_b64 | ⚠️ Partiel |
-
-**Décision prise :** plutôt que de continuer à déboguer n8n, un script Python autonome (`gmail_watcher.py`) a été développé pour surveiller Gmail directement via l'API Google. Cette approche est plus fiable, plus contrôlable et plus défendable techniquement.
-
-**Ce que ça démontre :** savoir arbitrer entre persévérance et pragmatisme est une compétence clé en gestion de projet — continuer à bloquer sur n8n aurait retardé la livraison sans apporter de valeur supplémentaire.
-
-En production, l'intégration no-code serait réalisée via un **webhook Gmail natif** branché directement sur l'endpoint FastAPI `/process`, sans dépendance à n8n.
-
-**Auteur :** Déhollin HOLLAT, Chef de Projet Data IA 
+**Auteur :** Déhollin HOLLAT, Chef de Projet Data IA
