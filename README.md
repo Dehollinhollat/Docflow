@@ -14,7 +14,37 @@
 
 ## 🖼️ Aperçu
 
-![Architecture DocFlow](docs/images/architecture.png)
+```
+📧 Email reçu (Gmail)
+│
+▼
+🔍 gmail_watcher.py
+Surveillance toutes les 60s
+Filtre : pièces jointes uniquement
+│
+▼
+🌐 API FastAPI (Render)
+POST /process_b64
+│
+├─── PDF natif ──► extractor.py (pdfplumber)
+│
+└─── PDF scanné / Image ──► vision.py (Claude API)
+│
+▼
+⚙️ normalizer.py
+Format uniforme + score de confiance + hash
+│
+▼
+🔎 enricher.py
+API entreprise.data.gouv.fr (SIRET → infos légales)
+│
+▼
+📊 airtable_client.py
+Vérification doublon → Push Airtable
+│
+▼
+✅ Document dans Airtable
+```
 
 ---
 
