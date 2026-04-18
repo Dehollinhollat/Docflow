@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 import tempfile
 import os
 import httpx
+import base64
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -88,21 +89,14 @@ async def process_document(file: UploadFile = File(...)):
 
 
 # ──────────────────────────────────────────────
-# 3. ENDPOINT URL (pour n8n — télécharge depuis Gmail)
+# 3. ENDPOINT URL (télécharge depuis une URL)
 # ──────────────────────────────────────────────
 
 @app.post("/process_url")
 async def process_from_url(data: dict):
     """
-    Reçoit une URL de fichier + token Gmail → télécharge et traite.
-    Utilisé par n8n qui ne peut pas envoyer de binaires directement.
-    
-    Body JSON attendu :
-    {
-        "url": "https://...",
-        "filename": "facture.pdf",
-        "token": "ya29.xxx"  (optionnel)
-    }
+    Reçoit une URL de fichier → télécharge et traite.
+    Body JSON : {"url": "...", "filename": "...", "token": "..."}
     """
     file_url = data.get("url")
     filename = data.get("filename", "document.pdf")
@@ -111,7 +105,6 @@ async def process_from_url(data: dict):
     if not file_url:
         raise HTTPException(status_code=400, detail="Champ 'url' manquant")
 
-    # Téléchargement du fichier
     try:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         async with httpx.AsyncClient(timeout=30) as client:
@@ -125,25 +118,79 @@ async def process_from_url(data: dict):
     except httpx.TimeoutException:
         raise HTTPException(status_code=408, detail="Timeout lors du téléchargement")
 
-    # Sauvegarde temporaire
     suffix = Path(filename).suffix or ".pdf"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
-        # Détection du type par extension
-        if suffix.lower() in [".pdf"]:
+        if suffix.lower() == ".pdf":
             extracted = extract_from_pdf(tmp_path)
             if extracted.get("status") == "scan_detected":
                 extracted = extract_from_vision(tmp_path)
         elif suffix.lower() in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
             extracted = extract_from_vision(tmp_path)
         else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Extension non supportée : {suffix}"
-            )
+            raise HTTPException(status_code=400, detail=f"Extension non supportée : {suffix}")
+
+        normalized = normalize(extracted)
+        enriched = enrich(normalized)
+        result = push_to_airtable(enriched)
+
+        return JSONResponse(content={
+            "status":   "succes",
+            "fichier":  filename,
+            "type":     enriched.get("type_document"),
+            "score":    enriched.get("score_confiance"),
+            "airtable": result,
+        })
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        os.unlink(tmp_path)
+
+
+# ──────────────────────────────────────────────
+# 4. ENDPOINT BASE64 (pour n8n)
+# ──────────────────────────────────────────────
+
+@app.post("/process_b64")
+async def process_from_base64(data: dict):
+    """
+    Reçoit un fichier encodé en base64 → décode et traite.
+    Body JSON : {"filename": "...", "data": "base64..."}
+    Utilisé par n8n qui ne peut pas envoyer de binaires directement.
+    """
+    filename = data.get("filename", "document.pdf")
+    b64_data = data.get("data")
+
+    if not b64_data:
+        raise HTTPException(status_code=400, detail="Champ 'data' manquant")
+
+    try:
+        file_bytes = base64.b64decode(b64_data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Données base64 invalides")
+
+    suffix = Path(filename).suffix or ".pdf"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
+
+    try:
+        if suffix.lower() == ".pdf":
+            extracted = extract_from_pdf(tmp_path)
+            if extracted.get("status") == "scan_detected":
+                extracted = extract_from_vision(tmp_path)
+        elif suffix.lower() in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+            extracted = extract_from_vision(tmp_path)
+        else:
+            raise HTTPException(status_code=400, detail=f"Extension non supportée : {suffix}")
 
         normalized = normalize(extracted)
         enriched = enrich(normalized)
